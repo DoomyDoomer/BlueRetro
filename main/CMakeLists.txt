@@ -90,6 +90,13 @@ if(CONFIG_IDF_TARGET_ESP32)
     )
 endif()
 
+
+if(CONFIG_BLUERETRO_BT_EXTERNAL_H4)
+    list(APPEND srcs
+        "bluetooth/hci_uart.c"
+    )
+endif()
+
 idf_component_register(
     SRCS "${srcs}"
     PRIV_INCLUDE_DIRS "."

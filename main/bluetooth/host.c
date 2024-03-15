@@ -9,7 +9,6 @@
 #include <freertos/task.h>
 #include <freertos/ringbuf.h>
 #include <esp_system.h>
-#include <esp_bt.h>
 #include <esp_mac.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
@@ -32,8 +31,16 @@
 #include "adapter/hid_parser.h"
 #include "bluetooth/hidp/ps.h"
 
+#ifdef CONFIG_BLUERETRO_BT_EXTERNAL_H4
+#include "hci_uart.h"
+#else
+#include <esp_bt.h>
+#endif
+
 #define BT_TX 0
 #define BT_RX 1
+
+#define PICO_EN_PIN 7
 
 enum {
     /* BT CTRL flags */
@@ -70,7 +77,6 @@ static uint8_t frag_buf[1024];
 #ifdef CONFIG_BLUERETRO_BT_H4_TRACE
 static void bt_h4_trace(uint8_t *data, uint16_t len, uint8_t dir);
 #endif /* CONFIG_BLUERETRO_BT_H4_TRACE */
-static int32_t bt_host_load_bdaddr_from_nvs(void);
 static int32_t bt_host_load_keys_from_file(struct bt_host_link_keys *data);
 static int32_t bt_host_store_keys_on_file(struct bt_host_link_keys *data);
 static int32_t bt_host_load_le_keys_from_file(struct bt_host_le_link_keys *data);
@@ -80,10 +86,12 @@ static void bt_host_tx_pkt_ready(void);
 static int bt_host_rx_pkt(uint8_t *data, uint16_t len);
 static void bt_host_task(void *param);
 
+#ifndef CONFIG_BLUERETRO_BT_EXTERNAL_H4
 static esp_vhci_host_callback_t vhci_host_cb = {
     bt_host_tx_pkt_ready,
     bt_host_rx_pkt
 };
+#endif
 
 #ifdef CONFIG_BLUERETRO_BT_H4_TRACE
 static void bt_h4_trace(uint8_t *data, uint16_t len, uint8_t dir) {
@@ -100,6 +108,7 @@ static void bt_h4_trace(uint8_t *data, uint16_t len, uint8_t dir) {
 }
 #endif /* CONFIG_BLUERETRO_BT_H4_TRACE */
 
+#ifndef CONFIG_BLUERETRO_BT_EXTERNAL_H4
 static int32_t bt_host_load_bdaddr_from_nvs(void) {
     esp_err_t err;
     nvs_handle_t nvs;
@@ -120,6 +129,7 @@ static int32_t bt_host_load_bdaddr_from_nvs(void) {
     }
     return ret;
 }
+#endif
 
 static int32_t bt_host_load_keys_from_file(struct bt_host_link_keys *data) {
     struct stat st;
@@ -216,8 +226,12 @@ static void bt_tx_task(void *param) {
 #ifdef CONFIG_BLUERETRO_BT_H4_TRACE
                     bt_h4_trace(packet, packet_len, BT_TX);
 #endif /* CONFIG_BLUERETRO_BT_H4_TRACE */
+#ifdef CONFIG_BLUERETRO_BT_EXTERNAL_H4
+                    hci_uart_tx(packet, packet_len);
+#else
                     atomic_clear_bit(&bt_flags, BT_CTRL_READY);
                     esp_vhci_host_send_packet(packet, packet_len);
+#endif
                 }
                 vRingbufferReturnItem(txq_hdl, (void *)packet);
             }
@@ -610,7 +624,7 @@ void bt_host_q_wait_pkt(uint32_t ms) {
 }
 
 int32_t bt_host_init(void) {
-    int32_t ret;
+    int32_t ret = 0;
 
 #ifdef CONFIG_BLUERETRO_BT_TIMING_TESTS
     gpio_config_t io_conf = {0};
@@ -623,6 +637,22 @@ int32_t bt_host_init(void) {
     gpio_set_level(26, 1);
 #endif
 
+#ifdef CONFIG_BLUERETRO_BT_EXTERNAL_H4
+    /* Start ESP32-PICO BT radio */
+    gpio_config_t io_conf = {0};
+    gpio_set_level(PICO_EN_PIN, 1);
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    io_conf.pin_bit_mask = 1ULL << PICO_EN_PIN;
+    gpio_config(&io_conf);
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    hci_uart_init(UART_NUM_1, 921600, UART_DATA_8_BITS, UART_STOP_BITS_1,
+        UART_PARITY_DISABLE, UART_HW_FLOWCTRL_CTS_RTS, bt_host_rx_pkt);
+#else
     bt_host_load_bdaddr_from_nvs();
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -638,6 +668,7 @@ int32_t bt_host_init(void) {
     }
 
     esp_vhci_host_register_callback(&vhci_host_cb);
+#endif
 
     bt_host_tx_pkt_ready();
 
@@ -650,9 +681,9 @@ int32_t bt_host_init(void) {
     bt_host_load_keys_from_file(&bt_host_link_keys);
     bt_host_load_le_keys_from_file(&bt_host_le_link_keys);
 
-    xTaskCreatePinnedToCore(&bt_host_task, "bt_host_task", 3072, NULL, 5, NULL, 0);
-    xTaskCreatePinnedToCore(&bt_fb_task, "bt_fb_task", 3072, NULL, 10, NULL, 0);
-    xTaskCreatePinnedToCore(&bt_tx_task, "bt_tx_task", 2048, NULL, 11, NULL, 0);
+    xTaskCreatePinnedToCore(bt_host_task, "bt_host_task", 3072, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(bt_fb_task, "bt_fb_task", 3072, NULL, 10, NULL, 0);
+    xTaskCreatePinnedToCore(bt_tx_task, "bt_tx_task", 2048, NULL, 11, NULL, 0);
 
     if (bt_hci_init()) {
         printf("# HCI init fail.\n");
