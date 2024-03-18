@@ -56,6 +56,7 @@ set(srcs
     "system/manager.c"
     "tools/ps1_gameid.c"
     "tools/stats.c"
+    "wired/wired_common.c"
     "wired/wired_rtos.c"
     "wired/parallel.c"
     "wired/sea_io.c"
