@@ -24,6 +24,7 @@ set(srcs
     "adapter/wired/ps.c"
     "adapter/wired/sea.c"
     "adapter/wired/wii.c"
+    "adapter/wired/xbox.c"
     "adapter/wired/parallel_1p.c"
     "adapter/wired/parallel_2p.c"
     "adapter/wired/wired.c"
