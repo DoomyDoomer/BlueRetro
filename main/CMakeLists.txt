@@ -91,6 +91,11 @@ if(CONFIG_IDF_TARGET_ESP32)
     )
 endif()
 
+if(CONFIG_IDF_TARGET_ESP32S2)
+    list(APPEND srcs
+        "wired/xbox_usb.c"
+    )
+endif()
 
 if(CONFIG_BLUERETRO_BT_EXTERNAL_H4)
     list(APPEND srcs
