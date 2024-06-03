@@ -40,7 +40,7 @@
 #define BT_TX 0
 #define BT_RX 1
 
-#define PICO_EN_PIN 7
+#define PICO_EN_PIN 15
 
 enum {
     /* BT CTRL flags */
