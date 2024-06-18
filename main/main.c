@@ -89,6 +89,8 @@ static void wl_init_task(void *arg) {
     esp_ota_img_states_t ota_state;
     esp_ota_get_state_partition(running, &ota_state);
 
+    printf("# Booted from %s\n", running->label);
+
     chip_package = esp_efuse_get_pkg_ver();
 
     err_led_init(chip_package);
