@@ -1,14 +1,14 @@
 name: build
 on:
   push:
-    branches: [ master ]
+    branches: [ master, v25.07-beta-HB ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, v25.07-beta-HB ]
   workflow_dispatch:
 
 jobs:
   build:
-    if: ${{ (github.repository == 'darthcloud/BlueRetro') || (github.event_name == 'workflow_dispatch') }}
+    if: ${{ (github.repository == 'DoomyDoomer/BlueRetro') || (github.event_name == 'workflow_dispatch') }}
     strategy:
       matrix:
         hw_version: [hw1, hw2]
