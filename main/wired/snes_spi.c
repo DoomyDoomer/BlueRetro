@@ -28,20 +28,24 @@
 
 #define P1_LATCH_PIN 32
 #define P1_CLK_PIN 5
-#define P1_CIPO_PIN 19
+#define P1_CIPO0_PIN 19
+#define P1_CIPO1_PIN 21
 #define P1_COPI_PIN 23
 #define P2_LATCH_PIN 32
 #define P2_CLK_PIN 18
-#define P2_CIPO_PIN 22
+#define P2_CIPO0_PIN 22
+#define P2_CIPO1_PIN 25
 #define P2_COPI_PIN 26
 
 #define P1_LATCH_MASK (1 << (P1_LATCH_PIN - 32))
 #define P1_CLK_MASK (1 << P1_CLK_PIN)
-#define P1_CIPO_MASK (1 << P1_CIPO_PIN)
+#define P1_CIPO0_MASK (1 << P1_CIPO0_PIN)
+#define P1_CIPO1_MASK (1 << P1_CIPO1_PIN)
 #define P1_COPI_MASK (1 << P1_COPI_PIN)
 #define P2_LATCH_MASK (1 << (P2_LATCH_PIN - 32))
 #define P2_CLK_MASK (1 << P2_CLK_PIN)
-#define P2_CIPO_MASK (1 << P2_CIPO_PIN)
+#define P2_CIPO0_MASK (1 << P2_CIPO0_PIN)
+#define P2_CIPO1_MASK (1 << P2_CIPO1_PIN)
 #define P2_COPI_MASK (1 << P2_COPI_PIN)
 
 #define SNES_PORT_MAX 2
@@ -59,6 +63,7 @@ struct snes_ctrl_port {
     uint32_t latch_pin;
     uint32_t clk_pin;
     uint32_t cipo_pin;
+    uint32_t cipo1_pin;
     uint32_t copi_pin;
     uint32_t latch_mask;
     uint32_t clk_mask;
@@ -96,11 +101,21 @@ static struct snes_ctrl_port snes_ctrl_ports[SNES_PORT_MAX] = {
         .hw = &SPI2,
         .latch_pin = P1_LATCH_PIN,
         .clk_pin = P1_CLK_PIN,
-        .cipo_pin = P1_CIPO_PIN,
+#ifdef CONFIG_BLUERETRO_SYSTEM_NES
+        .cipo_pin = P1_CIPO1_PIN,
+        .cipo1_pin = P1_CIPO0_PIN,
+#else
+        .cipo_pin = P1_CIPO0_PIN,
+        .cipo1_pin = P1_CIPO1_PIN,
+#endif
         .copi_pin = P1_COPI_PIN,
         .latch_mask = P1_LATCH_MASK,
         .clk_mask = P1_CLK_MASK,
-        .cipo_mask = P1_CIPO_MASK,
+#ifdef CONFIG_BLUERETRO_SYSTEM_NES
+        .cipo_mask = P1_CIPO1_MASK,
+#else
+        .cipo_mask = P1_CIPO0_MASK,
+#endif
         .copi_mask = P1_COPI_MASK,
         .latch_sig = HSPICS0_IN_IDX,
         .clk_sig = HSPICLK_IN_IDX,
@@ -130,11 +145,12 @@ static struct snes_ctrl_port snes_ctrl_ports[SNES_PORT_MAX] = {
         .hw = &SPI3,
         .latch_pin = P2_LATCH_PIN,
         .clk_pin = P2_CLK_PIN,
-        .cipo_pin = P2_CIPO_PIN,
+        .cipo_pin = P2_CIPO0_PIN,
+        .cipo1_pin = P2_CIPO1_PIN,
         .copi_pin = P2_COPI_PIN,
         .latch_mask = P2_LATCH_MASK,
         .clk_mask = P2_CLK_MASK,
-        .cipo_mask = P2_CIPO_MASK,
+        .cipo_mask = P2_CIPO0_MASK,
         .copi_mask = P2_COPI_MASK,
         .latch_sig = VSPICS0_IN_IDX,
         .clk_sig = VSPICLK_IN_IDX,
@@ -333,6 +349,10 @@ void snes_spi_init(uint32_t package) {
         gpio_set_direction_iram(p->cipo_pin, GPIO_MODE_OUTPUT);
         gpio_matrix_out(p->cipo_pin, p->cipo_sig, false, false);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG_IRAM[p->cipo_pin], PIN_FUNC_GPIO);
+
+        /* CIPO1 */
+        gpio_set_level_iram(p->cipo1_pin, 1);
+        gpio_set_direction_iram(p->cipo1_pin, GPIO_MODE_OUTPUT);
 
         /* COPI */
         io_conf.mode = GPIO_MODE_INPUT;

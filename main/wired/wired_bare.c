@@ -32,7 +32,7 @@ static const char *sys_name[WIRED_MAX] = {
     "AUTO",
     "PARALLEL_1P_PP",
     "PARALLEL_2P_PP",
-    "NES",
+    "FC-NES",
     "PCE",
     "MD-GENESIS",
     "SNES",
@@ -59,7 +59,7 @@ static const wired_init_t wired_init[WIRED_MAX] = {
     NULL, /* WIRED_AUTO */
     NULL, /* PARALLEL_1P */
     NULL, /* PARALLEL_2P */
-    npiso_init, /* NES */
+    snes_spi_init, /* NES */
     pce_io_init, /* PCE */
     sega_io_init, /* GENESIS */
     snes_spi_init, /* SNES */

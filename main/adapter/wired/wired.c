@@ -57,7 +57,7 @@ static fb_to_generic_t fb_to_generic_func[WIRED_MAX] = {
     NULL, /* WIRED_AUTO */
     NULL, /* PARALLEL_1P */
     NULL, /* PARALLEL_2P */
-    NULL, /* NES */
+    npiso_fb_to_generic, /* NES */
     NULL, /* PCE */
     NULL, /* GENESIS */
     npiso_fb_to_generic, /* SNES */

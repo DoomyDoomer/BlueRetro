@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         hw_version: [hw1]
-        br_config: [snes]
+        br_config: [nes, snes]
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/darthcloud/idf-blueretro:v5.5.0_2024-12-02
