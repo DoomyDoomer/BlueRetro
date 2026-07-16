@@ -145,12 +145,21 @@ static struct snes_ctrl_port snes_ctrl_ports[SNES_PORT_MAX] = {
         .hw = &SPI3,
         .latch_pin = P2_LATCH_PIN,
         .clk_pin = P2_CLK_PIN,
+#ifdef CONFIG_BLUERETRO_SYSTEM_NES
+        .cipo_pin = P2_CIPO1_PIN,
+        .cipo1_pin = P2_CIPO0_PIN,
+#else
         .cipo_pin = P2_CIPO0_PIN,
         .cipo1_pin = P2_CIPO1_PIN,
+#endif
         .copi_pin = P2_COPI_PIN,
         .latch_mask = P2_LATCH_MASK,
         .clk_mask = P2_CLK_MASK,
+#ifdef CONFIG_BLUERETRO_SYSTEM_NES
+        .cipo_mask = P2_CIPO1_MASK,
+#else
         .cipo_mask = P2_CIPO0_MASK,
+#endif
         .copi_mask = P2_COPI_MASK,
         .latch_sig = VSPICS0_IN_IDX,
         .clk_sig = VSPICLK_IN_IDX,
