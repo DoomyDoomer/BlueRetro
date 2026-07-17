@@ -19,6 +19,7 @@
 #include "jag_io.h"
 #include "wii_i2c.h"
 #include "soc/pcnt_struct.h"
+#include "hal/rmt_ll.h"
 #include "adapter/adapter.h"
 #include "wired_bare.h"
 
@@ -196,4 +197,23 @@ void pcnt_init(uint8_t id) {
         PCNT.ctrl.cnt_rst_u0 = 0;
         PCNT.ctrl.cnt_pause_u0 = 0;
     }
+}
+
+void rmt_init(uint8_t channel, uint16_t idle_thres) {
+    RMT.conf_ch[channel].conf0.div_cnt = 40; /* 80MHz (APB CLK) / 40 = 0.5us TICK */;
+    RMT.conf_ch[channel].conf1.mem_rd_rst = 1;
+    RMT.conf_ch[channel].conf1.mem_wr_rst = 1;
+    RMT.conf_ch[channel].conf1.tx_conti_mode = 0;
+    RMT.conf_ch[channel].conf0.mem_size = 8;
+    RMT.conf_ch[channel].conf1.mem_owner = RMT_LL_MEM_OWNER_SW;
+    RMT.conf_ch[channel].conf1.ref_always_on = 1;
+    RMT.conf_ch[channel].conf1.idle_out_en = 1;
+    RMT.conf_ch[channel].conf1.idle_out_lv = 1;
+    RMT.conf_ch[channel].conf0.carrier_en = 0;
+    RMT.conf_ch[channel].conf0.carrier_out_lv = 0;
+    RMT.carrier_duty_ch[channel].high = 0;
+    RMT.carrier_duty_ch[channel].low = 0;
+    RMT.conf_ch[channel].conf0.idle_thres = idle_thres;
+    RMT.conf_ch[channel].conf1.rx_filter_thres = 0; /* No minimum length */
+    RMT.conf_ch[channel].conf1.rx_filter_en = 0;
 }

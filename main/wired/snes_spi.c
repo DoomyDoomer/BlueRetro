@@ -10,6 +10,7 @@
 #include <soc/pcnt_struct.h>
 #include <esp32/rom/ets_sys.h>
 #include <esp32/rom/gpio.h>
+#include "hal/rmt_ll.h"
 #include "hal/clk_gate_ll.h"
 #include "driver/gpio.h"
 #include "system/intr.h"
@@ -25,6 +26,9 @@
 #include "snes_spi.h"
 
 #define GPIO_INTR_NUM 19
+#define RMT_INTR_NUM 20
+#define GPIO_INTR_MASK (1 << GPIO_INTR_NUM)
+#define RMT_INTR_MASK (1 << RMT_INTR_NUM)
 
 #define P1_LATCH_PIN 32
 #define P1_CLK_PIN 5
@@ -36,6 +40,10 @@
 #define P2_CIPO0_PIN 22
 #define P2_CIPO1_PIN 25
 #define P2_COPI_PIN 26
+
+#define P2_D2_PIN 3
+#define P2_D3_PIN 16
+#define P2_D4_PIN 27
 
 #define P1_LATCH_MASK (1 << (P1_LATCH_PIN - 32))
 #define P1_CLK_MASK (1 << P1_CLK_PIN)
@@ -49,6 +57,12 @@
 #define P2_COPI_MASK (1 << P2_COPI_PIN)
 
 #define SNES_PORT_MAX 2
+
+typedef union {
+    uint8_t tmp[8];
+    uint16_t tmp16[4];
+    uint32_t tmp32[2];
+} union64_t;
 
 enum {
     SNES_PAD_FORMAT_DEFAULT = 0,
@@ -82,6 +96,7 @@ struct snes_ctrl_port {
     uint8_t pcnt_id;
 };
 
+static union64_t tmp = {0};
 static struct snes_ctrl_port snes_ctrl_ports[SNES_PORT_MAX] = {
     {
         .cfg = {
@@ -187,17 +202,17 @@ static inline void load_mouse_axes(uint8_t port, uint8_t *axes) {
         }
 
         if (val > 127) {
-            axes[i] = 128;
+            axes[i] = 0;
         }
         else if (val < -128) {
-            axes[i] = 0;
+            axes[i] = 0xFF;
         }
         else {
             if (val < 0) {
-                axes[i] = ~((uint8_t)abs(val) | 0x80);
+                axes[i] = ((uint8_t)abs(val) | 0x80);
             }
             else {
-                axes[i] = ~((uint8_t)val);
+                axes[i] = ((uint8_t)val);
             }
         }
     }
@@ -207,44 +222,48 @@ static inline void load_buffer(uint8_t port) {
     switch (config.out_cfg[port].dev_mode) {
         case DEV_PAD:
         {
-            union {
-                uint8_t tmp[8];
-                uint16_t tmp16[4];
-                uint32_t tmp32[2];
-            } raw = {0};
-
             switch (snes_ctrl_ports[port].format) {
                 case SNES_PAD_FORMAT_BR_8BITS:
-                    raw.tmp16[0] = wired_adapter.data[port].output16[0] | wired_adapter.data[port].output_mask16[0];
-                    raw.tmp16[1] = wired_adapter.data[port].output16[1];
-                    raw.tmp32[1] = wired_adapter.data[port].output32[1];
+                {
+                    union {
+                        uint8_t tmp[8];
+                        uint16_t tmp16[4];
+                        uint32_t tmp32[2];
+                    } raw = {0};
+                    raw.tmp16[0] = wired_adapter.data[port].output16[1] & wired_adapter.data[port].output_mask16[1];
+                    raw.tmp16[1] = wired_adapter.data[port].output16[2];
+                    raw.tmp16[2] = wired_adapter.data[port].output16[3];
+                    raw.tmp16[3] = wired_adapter.data[port].output16[4];
                     raw.tmp[1] &= 0xF0;
-                    raw.tmp[1] |= 0x09;
+                    raw.tmp[1] |= 0x06;
+                    snes_ctrl_ports[port].hw->data_buf[0] = raw.tmp32[0];
+                    snes_ctrl_ports[port].hw->data_buf[1] = raw.tmp32[1];
                     break;
+                }
                 case SNES_PAD_FORMAT_BR_4BITS:
-                    raw.tmp16[0] = wired_adapter.data[port].output16[0] | wired_adapter.data[port].output_mask16[0];
-                    raw.tmp[2] = (wired_adapter.data[port].output[2] & 0xF0) | (wired_adapter.data[port].output[3] >> 4);
-                    raw.tmp[3] = (wired_adapter.data[port].output[4] & 0xF0) | (wired_adapter.data[port].output[5] >> 4);
-                    raw.tmp[4] = (wired_adapter.data[port].output[6] & 0xF0) | (wired_adapter.data[port].output[7] >> 4);
+                {
+                    union {
+                        uint8_t tmp[8];
+                        uint16_t tmp16[4];
+                        uint32_t tmp32[2];
+                    } raw = {0};
+                    raw.tmp16[0] = wired_adapter.data[port].output16[1] & wired_adapter.data[port].output_mask16[1];
+                    raw.tmp[2] = (wired_adapter.data[port].output[4] & 0xF0) | (wired_adapter.data[port].output[5] >> 4);
+                    raw.tmp[3] = (wired_adapter.data[port].output[6] & 0xF0) | (wired_adapter.data[port].output[7] >> 4);
+                    raw.tmp[4] = (wired_adapter.data[port].output[8] & 0xF0) | (wired_adapter.data[port].output[9] >> 4);
                     raw.tmp[1] &= 0xF0;
-                    raw.tmp[1] |= 0x08;
+                    raw.tmp[1] |= 0x07;
+                    snes_ctrl_ports[port].hw->data_buf[0] = raw.tmp32[0];
+                    snes_ctrl_ports[port].hw->data_buf[1] = raw.tmp32[1];
                     break;
+                }
                 default:
-                    raw.tmp16[0] = wired_adapter.data[port].output16[0] | wired_adapter.data[port].output_mask16[0];
-                    raw.tmp16[1] = 0;
-                    raw.tmp32[1] = 0;
-                    raw.tmp[1] |= 0x0F;
-                    if ((uint8_t)~wired_adapter.data[port].output[6] > 16) {
-                        raw.tmp16[0] &= ~(1 << 13);
-                    }
-                    if ((uint8_t)~wired_adapter.data[port].output[7] > 16) {
-                        raw.tmp16[0] &= ~(1 << 12);
-                    }
+                {
+                    snes_ctrl_ports[port].hw->data_buf[0] = wired_adapter.data[port].output16[0] & wired_adapter.data[port].output_mask16[0] & 0xF0FF;
+                    snes_ctrl_ports[port].hw->data_buf[1] = 0;
                     break;
+                }
             }
-
-            snes_ctrl_ports[port].hw->data_buf[0] = raw.tmp32[0];
-            snes_ctrl_ports[port].hw->data_buf[1] = raw.tmp32[1];
             break;
         }
         case DEV_MOUSE:
@@ -253,7 +272,7 @@ static inline void load_buffer(uint8_t port) {
                 uint8_t tmp[4];
                 uint32_t tmp32;
             } raw = {0};
-            raw.tmp[0] = 0xFF;
+            raw.tmp[0] = 0x00;
             raw.tmp[1] = wired_adapter.data[port].output[1];
             load_mouse_axes(port, &raw.tmp[2]);
             snes_ctrl_ports[port].hw->data_buf[0] = raw.tmp32;
@@ -262,83 +281,137 @@ static inline void load_buffer(uint8_t port) {
     }
 }
 
-static unsigned latch_isr(unsigned cause) {
-    const uint32_t low_io = GPIO.acpu_int;
-    const uint32_t high_io = GPIO.acpu_int1.intr;
-    struct snes_ctrl_port *p;
+static inline void frame_end(uint8_t port) {
+    struct snes_ctrl_port *p= &snes_ctrl_ports[port];
+    union {
+        uint32_t tmp32[2];
+        uint8_t tmp[8];
+    } raw;
 
-    if (high_io & P1_LATCH_MASK) {
-        for (uint32_t port = 0; port < SNES_PORT_MAX; port++) {
-            union {
-                uint32_t tmp32[2];
-                uint8_t tmp[8];
-            } raw;
+    raw.tmp32[0] = snes_ctrl_ports[port].hw->data_buf[0];
+    raw.tmp32[1] = snes_ctrl_ports[port].hw->data_buf[1];
+    int16_t bit_cnt = PCNT.cnt_unit[p->pcnt_id].cnt_val;
 
-            raw.tmp32[0] = snes_ctrl_ports[port].hw->data_buf[0];
-            raw.tmp32[1] = snes_ctrl_ports[port].hw->data_buf[1];
-            p = &snes_ctrl_ports[port];
-            int16_t bit_cnt = PCNT.cnt_unit[p->pcnt_id].cnt_val;
+    ++wired_adapter.data[port].frame_cnt;
+    npiso_gen_turbo_mask(&wired_adapter.data[port]);
 
-            load_buffer(port);
-            p->hw->slave.sync_reset = 1;
-            p->hw->slave.trans_done = 0;
-            p->hw->cmd.usr = 1;
+    if (bit_cnt >= 32) {
+        uint8_t cmd_sentry = (raw.tmp[2] << 1) | (raw.tmp[3] >> 7);
+        uint8_t cmd_data = (raw.tmp[3] << 1) | (raw.tmp[4] >> 7);
+        if (cmd_sentry != 'r' && cmd_sentry != 'b') {
+            cmd_sentry = raw.tmp[2];
+            cmd_data = raw.tmp[3];
+        }
 
-            ++wired_adapter.data[port].frame_cnt;
-            npiso_gen_turbo_mask(&wired_adapter.data[port]);
-
-            if (bit_cnt > 24) {
-                uint8_t cmd_sentry = (raw.tmp[2] << 1) | (raw.tmp[3] >> 7);
-                uint8_t cmd_data = (raw.tmp[3] << 1) | (raw.tmp[4] >> 7);
-                if (cmd_sentry != 'r' && cmd_sentry != 'b') {
-                    cmd_sentry = raw.tmp[2];
-                    cmd_data = raw.tmp[3];
+        switch (cmd_sentry) {
+            case 'b':
+                if (cmd_data < SNES_PAD_FORMAT_CNT) {
+                    if (cmd_data) {
+                        snes_ctrl_ports[port].hw->slv_wrbuf_dlen.bit_len = 64 - 1;
+                        snes_ctrl_ports[port].hw->slv_rdbuf_dlen.bit_len = 64 - 1;
+                    }
+                    else {
+                        snes_ctrl_ports[port].hw->slv_wrbuf_dlen.bit_len = 33 - 1;
+                        snes_ctrl_ports[port].hw->slv_rdbuf_dlen.bit_len = 33 - 1;
+                    }
+                    p->format = cmd_data;
                 }
-
-                switch (cmd_sentry) {
-                    case 'b':
-                        if (cmd_data < SNES_PAD_FORMAT_CNT) {
-                            if (cmd_data) {
-                                snes_ctrl_ports[port].hw->slv_wrbuf_dlen.bit_len = 64 - 1;
-                                snes_ctrl_ports[port].hw->slv_rdbuf_dlen.bit_len = 64 - 1;
-                            }
-                            else {
-                                snes_ctrl_ports[port].hw->slv_wrbuf_dlen.bit_len = 33 - 1;
-                                snes_ctrl_ports[port].hw->slv_rdbuf_dlen.bit_len = 33 - 1;
-                            }
-                            p->format = cmd_data;
-                        }
-                        break;
-                    case 'r':
-                        if (cmd_data != p->rumble_data
-                                && config.out_cfg[port].acc_mode & ACC_RUMBLE) {
-                            struct raw_fb fb_data = {0};
-                            fb_data.data[0] = (cmd_data & 0xF0) >> 4;
-                            fb_data.data[1] = cmd_data & 0x0F;
-                            fb_data.header.wired_id = port;
-                            fb_data.header.type = FB_TYPE_RUMBLE;
-                            fb_data.header.data_len = 2;
-                            adapter_q_fb(&fb_data);
-                        }
-                        p->rumble_data = cmd_data;
-                        //ets_printf("%02X %02X\n", cmd_sentry, cmd_data);
-                        break;
+                break;
+            case 'r':
+                if (cmd_data != p->rumble_data
+                        && config.out_cfg[port].acc_mode & ACC_RUMBLE) {
+                    struct raw_fb fb_data = {0};
+                    fb_data.data[0] = (cmd_data & 0xF0) >> 4;
+                    fb_data.data[1] = cmd_data & 0x0F;
+                    fb_data.header.wired_id = port;
+                    fb_data.header.type = FB_TYPE_RUMBLE;
+                    fb_data.header.data_len = 2;
+                    adapter_q_fb(&fb_data);
                 }
-            }
+                p->rumble_data = cmd_data;
+                //ets_printf("%02X %02X\n", cmd_sentry, cmd_data);
+                break;
         }
     }
-    PCNT.ctrl.cnt_rst_u0 = 1;
-    PCNT.ctrl.cnt_rst_u0 = 0;
-    PCNT.ctrl.cnt_rst_u1 = 1;
-    PCNT.ctrl.cnt_rst_u1 = 0;
+    if (port) {
+        PCNT.ctrl.cnt_rst_u1 = 1;
+        PCNT.ctrl.cnt_rst_u1 = 0;
+    }
+    else {
+        PCNT.ctrl.cnt_rst_u0 = 1;
+        PCNT.ctrl.cnt_rst_u0 = 0;
+    }
+}
 
-    if (high_io) GPIO.status1_w1tc.intr_st = high_io;
-    if (low_io) GPIO.status_w1tc = low_io;
+static unsigned clk_timeout_isr(unsigned cause) {
+    const uint32_t intr_st = RMT.int_st.val;
+    uint32_t status = intr_st;
+    uint8_t i, channel;
+
+    while (status) {
+        i = __builtin_ffs(status) - 1;
+        status &= ~(1 << i);
+        channel = i / 3;
+        switch (i % 3) {
+            /* TX End */
+            case 0:
+                break;
+            /* RX End */
+            case 1:
+                RMT.conf_ch[channel].conf1.rx_en = 0;
+                rmt_ll_rx_reset_pointer(&RMT, channel);
+                RMT.conf_ch[channel].conf1.rx_en = 1;
+                ets_printf("%d:%d\n", channel, PCNT.cnt_unit[channel].cnt_val);
+                frame_end(channel);
+                break;
+            /* Error */
+            case 2:
+                ets_printf("ERR\n");
+                RMT.int_ena.val &= (~(BIT(i)));
+                break;
+            default:
+                break;
+        }
+    }
+    RMT.int_clr.val = intr_st;
+    return 0;
+}
+
+static unsigned isr_dispatch(unsigned cause) {
+    if (cause & GPIO_INTR_MASK) {
+        load_buffer(0);
+        snes_ctrl_ports[0].hw->slave.sync_reset = 1;
+        snes_ctrl_ports[0].hw->slave.trans_done = 0;
+        snes_ctrl_ports[0].hw->cmd.usr = 1;
+        load_buffer(1);
+        snes_ctrl_ports[1].hw->slave.sync_reset = 1;
+        snes_ctrl_ports[1].hw->slave.trans_done = 0;
+        snes_ctrl_ports[1].hw->cmd.usr = 1;
+
+        const uint32_t low_io = GPIO.acpu_int;
+        const uint32_t high_io = GPIO.acpu_int1.intr;
+        if (high_io) GPIO.status1_w1tc.intr_st = high_io;
+        if (low_io) GPIO.status_w1tc = low_io;
+    }
+    if (cause & RMT_INTR_MASK) {
+        clk_timeout_isr(cause);
+    }
     return 0;
 }
 
 void snes_spi_init(uint32_t package) {
     gpio_config_t io_conf = {0};
+
+    periph_ll_enable_clk_clear_rst(PERIPH_RMT_MODULE);
+
+    RMT.apb_conf.fifo_mask = 1;
+
+    gpio_set_level_iram(P2_D2_PIN, 1);
+    gpio_set_direction_iram(P2_D2_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level_iram(P2_D3_PIN, 1);
+    gpio_set_direction_iram(P2_D3_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_level_iram(P2_D4_PIN, 1);
+    gpio_set_direction_iram(P2_D4_PIN, GPIO_MODE_OUTPUT);
 
     for (uint32_t i = 0; i < SNES_PORT_MAX; i++) {
         struct snes_ctrl_port *p = &snes_ctrl_ports[i];
@@ -356,7 +429,7 @@ void snes_spi_init(uint32_t package) {
         /* CIPO */
         gpio_set_level_iram(p->cipo_pin, 1);
         gpio_set_direction_iram(p->cipo_pin, GPIO_MODE_OUTPUT);
-        gpio_matrix_out(p->cipo_pin, p->cipo_sig, false, false);
+        gpio_matrix_out(p->cipo_pin, p->cipo_sig, true, false);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG_IRAM[p->cipo_pin], PIN_FUNC_GPIO);
 
         /* CIPO1 */
@@ -381,13 +454,22 @@ void snes_spi_init(uint32_t package) {
         gpio_config_iram(&io_conf);
         gpio_matrix_in(p->clk_pin, p->clk_sig, true);
         gpio_matrix_in(p->clk_pin, p->pcnt_pulse_sig, true);
+        gpio_matrix_in(p->clk_pin, RMT_SIG_IN0_IDX + i, true);
 
         periph_ll_enable_clk_clear_rst(p->spi_mod);
         periph_ll_enable_clk_clear_rst(p->pcnt_mod);
 
         spi_init(&p->cfg);
         pcnt_init(p->pcnt_id);
+        rmt_init(i, 200);
+        
+        rmt_ll_rx_enable(&RMT, i, 0);
+        rmt_ll_rx_reset_pointer(&RMT, i);
+        rmt_ll_clear_interrupt_status(&RMT, RMT_LL_EVENT_RX_DONE(i));
+        rmt_ll_enable_interrupt(&RMT, RMT_LL_EVENT_RX_DONE(i), 1);
+        rmt_ll_rx_enable(&RMT, i, 1);
     }
 
-    intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, GPIO_INTR_NUM, latch_isr);
+    intexc_alloc_iram(ETS_GPIO_INTR_SOURCE, GPIO_INTR_NUM, isr_dispatch);
+    intexc_alloc_iram(ETS_RMT_INTR_SOURCE, RMT_INTR_NUM, isr_dispatch);
 }

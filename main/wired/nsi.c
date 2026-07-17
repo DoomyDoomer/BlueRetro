@@ -21,6 +21,7 @@
 #include "adapter/wired/gc.h"
 #include "system/gpio.h"
 #include "system/intr.h"
+#include "wired_bare.h"
 #include "nsi.h"
 
 #define BIT_ZERO 0x80020006
@@ -686,22 +687,7 @@ void nsi_init(uint32_t package) {
     nsi_port_cfg(0xF);
 
     for (uint32_t i = 0; i < ARRAY_SIZE(gpio_pin); i++) {
-        RMT.conf_ch[rmt_ch[i][system]].conf0.div_cnt = 40; /* 80MHz (APB CLK) / 40 = 0.5us TICK */;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.mem_rd_rst = 1;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.mem_wr_rst = 1;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.tx_conti_mode = 0;
-        RMT.conf_ch[rmt_ch[i][system]].conf0.mem_size = 8;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.mem_owner = RMT_LL_MEM_OWNER_SW;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.ref_always_on = 1;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.idle_out_en = 1;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.idle_out_lv = 1;
-        RMT.conf_ch[rmt_ch[i][system]].conf0.carrier_en = 0;
-        RMT.conf_ch[rmt_ch[i][system]].conf0.carrier_out_lv = 0;
-        RMT.carrier_duty_ch[rmt_ch[i][system]].high = 0;
-        RMT.carrier_duty_ch[rmt_ch[i][system]].low = 0;
-        RMT.conf_ch[rmt_ch[i][system]].conf0.idle_thres = (wired_adapter.system_id == N64) ? N64_BIT_PERIOD_TICKS : GC_BIT_PERIOD_TICKS;
-        RMT.conf_ch[rmt_ch[i][system]].conf1.rx_filter_thres = 0; /* No minimum length */
-        RMT.conf_ch[rmt_ch[i][system]].conf1.rx_filter_en = 0;
+        rmt_init(rmt_ch[i][system], (wired_adapter.system_id == N64) ? N64_BIT_PERIOD_TICKS : GC_BIT_PERIOD_TICKS);
 
         rmt_ll_enable_interrupt(&RMT, RMT_LL_EVENT_TX_DONE(rmt_ch[i][system]), 1);
         rmt_ll_enable_interrupt(&RMT, RMT_LL_EVENT_RX_DONE(rmt_ch[i][system]), 1);
