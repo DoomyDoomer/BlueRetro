@@ -45,6 +45,12 @@ enum {
     NPISO_A, NPISO_VB_RD_RIGHT = NPISO_A,
 };
 
+
+static DRAM_ATTR const uint8_t npiso_axes_idx[ADAPTER_MAX_AXES] =
+{
+/*  AXIS_LX, AXIS_LY, AXIS_RX, AXIS_RY, TRIG_L, TRIG_R  */
+    0,       1,       2,       3,       4,     5
+};
 static DRAM_ATTR const uint8_t npiso_mouse_axes_idx[ADAPTER_MAX_AXES] =
 {
 /*  AXIS_LX, AXIS_LY, AXIS_RX, AXIS_RY, TRIG_L, TRIG_R  */
@@ -82,6 +88,7 @@ static DRAM_ATTR const struct ctrl_meta npiso_axes_meta[ADAPTER_MAX_AXES] =
 };
 
 struct npiso_map {
+    uint16_t buttons_atrig;
     uint16_t buttons;
     uint8_t axes[6];
 } __packed;
@@ -211,8 +218,8 @@ void IRAM_ATTR npiso_init_buffer(int32_t dev_mode, struct wired_data *wired_data
             if (wired_adapter.system_id == SNES) {
                 struct npiso_mouse_map *map = (struct npiso_mouse_map *)wired_data->output;
 
-                map->id = 0xFF;
-                map->buttons = 0xFE;
+                map->id = 0x00;
+                map->buttons = 0x01;
                 map->relative[0] = 1;
                 map->relative[1] = 1;
                 map->raw_axes[0] = 0;
@@ -221,8 +228,8 @@ void IRAM_ATTR npiso_init_buffer(int32_t dev_mode, struct wired_data *wired_data
             else {
                 struct npiso_trackball_map *map = (struct npiso_trackball_map *)wired_data->output;
 
-                map->buttons = 0xFF;
-                map->flags = 0x2F; // Fixed switch to L & Lo
+                map->buttons = 0x00;
+                map->flags = 0xD0; // Fixed switch to L & Lo
                 map->relative[0] = 1;
                 map->relative[1] = 1;
                 map->raw_axes[0] = 0;
@@ -236,14 +243,14 @@ void IRAM_ATTR npiso_init_buffer(int32_t dev_mode, struct wired_data *wired_data
             struct npiso_map *map_mask = (struct npiso_map *)wired_data->output_mask;
 
             if (wired_adapter.system_id == VBOY) {
-                map->buttons = 0xFDFF;
+                map->buttons = 0x0200;
             }
             else {
-                map->buttons = 0xFFFF;
+                map->buttons = 0x0000;
             }
-            map_mask->buttons = 0x0000;
-            memset(map->axes, 0xFF, sizeof(map_mask->axes));
-            memset(map_mask->axes, 0x00, sizeof(map_mask->axes));
+            map_mask->buttons = 0xFFFF;
+            memset(map->axes, 0x00, sizeof(map_mask->axes));
+            memset(map_mask->axes, 0xFF, sizeof(map_mask->axes));
             break;
         }
     }
@@ -330,27 +337,35 @@ static void npiso_ctrl_from_generic(struct wired_ctrl *ctrl_data, struct wired_d
     for (uint32_t i = 0; i < ARRAY_SIZE(generic_btns_mask); i++) {
         if (ctrl_data->map_mask[0] & BIT(i)) {
             if (ctrl_data->btns[0].value & generic_btns_mask[i]) {
-                map_tmp.buttons &= ~btns_mask[i];
+                map_tmp.buttons |= btns_mask[i];
                 map_mask &= ~btns_mask[i];
                 wired_data->cnt_mask[i] = ctrl_data->btns[0].cnt_mask[i];
             }
             else if (map_mask & btns_mask[i]) {
-                map_tmp.buttons |= btns_mask[i];
+                map_tmp.buttons &= ~btns_mask[i];
                 wired_data->cnt_mask[i] = 0;
             }
         }
     }
 
+    map_tmp.buttons_atrig = map_tmp.buttons;
+    if (map_tmp.axes[TRIG_L] > 16) {
+        map_tmp.buttons_atrig |= BIT(NPISO_L);
+    }
+    if (map_tmp.axes[TRIG_R] > 16) {
+        map_tmp.buttons_atrig |= BIT(NPISO_R);
+    }
+
     for (uint32_t i = 0; i < ADAPTER_MAX_AXES; i++) {
         if (ctrl_data->map_mask[0] & (axis_to_btn_mask(i) & ctrl_data->desc[0])) {
             if (ctrl_data->axes[i].value > ctrl_data->axes[i].meta->size_max) {
-                map_tmp.axes[i] = ~ctrl_data->axes[i].meta->size_max;
+                map_tmp.axes[i] = ctrl_data->axes[i].meta->size_max;
             }
             else if (ctrl_data->axes[i].value < ctrl_data->axes[i].meta->size_min) {
-                map_tmp.axes[i] = ~ctrl_data->axes[i].meta->size_min;
+                map_tmp.axes[i] = ctrl_data->axes[i].meta->size_min;
             }
             else {
-                map_tmp.axes[i] = ~(uint8_t)(ctrl_data->axes[i].value);
+                map_tmp.axes[i] = (uint8_t)(ctrl_data->axes[i].value);
             }
         }
         wired_data->cnt_mask[axis_to_btn_id(i)] = ctrl_data->axes[i].cnt_mask;
@@ -491,7 +506,9 @@ void IRAM_ATTR npiso_gen_turbo_mask(struct wired_data *wired_data) {
     const uint32_t *btns_mask = (wired_adapter.system_id == VBOY) ? npiso_vb_btns_mask : npiso_btns_mask;
     struct npiso_map *map_mask = (struct npiso_map *)wired_data->output_mask;
 
-    map_mask->buttons = 0x0000;
+    memset(map_mask, 0xFF, sizeof(*map_mask));
 
-    wired_gen_turbo_mask_btns16_neg(wired_data, &map_mask->buttons, btns_mask);
+    wired_gen_turbo_mask_btns16_pos(wired_data, &map_mask->buttons_atrig, btns_mask);
+    wired_gen_turbo_mask_btns16_pos(wired_data, &map_mask->buttons, btns_mask);
+    wired_gen_turbo_mask_axes8(wired_data, map_mask->axes, ADAPTER_MAX_AXES, npiso_axes_idx, npiso_axes_meta);
 }
